@@ -198,6 +198,29 @@ function dedup(pool) {
   var seen = {};
   return pool.filter(function (q) { var k = normKey(q); if (seen[k]) return false; seen[k] = 1; return true; });
 }
+/* 歷屆出處：同一題可能出現在多期，依題目內容彙整，例如「114年 第61期、第45期」 */
+var _SRCMAP = null;
+function pastSrc(q) {
+  if (!_SRCMAP) {
+    _SRCMAP = {};
+    PAPERS.forEach(function (p) {
+      (p.qids || []).forEach(function (id) {
+        var raw = rawById(id); if (!raw) return;
+        var k = normKey(raw); (_SRCMAP[k] = _SRCMAP[k] || []).push(p);
+      });
+    });
+  }
+  var raw = rawById(q.id), list = raw ? (_SRCMAP[normKey(raw)] || []) : [], seenP = {};
+  list = list.filter(function (p) { if (seenP[p.id]) return false; seenP[p.id] = 1; return true; })
+    .sort(function (a, b) { return (b.sess || 0) - (a.sess || 0); });
+  return list.map(function (p) { return (p.yROC ? p.yROC + '年 ' : '') + '第' + p.sess + '期'; }).join('、');
+}
+/* 未寫過題目：以題目內容判斷（同一題在不同期出現只要寫過一次就算寫過） */
+function unseenPool(id) {
+  var seen = getSeen(), done = {};
+  Object.keys(seen).forEach(function (k) { var r = rawById(k); if (r) done[normKey(r)] = 1; });
+  return dedup(bankOf(id)).filter(function (q) { return !done[normKey(q)]; });
+}
 /* 依主題比例分層隨機抽題 */
 function stratified(pool, n) {
   if (n >= pool.length) return shuffle(pool);
@@ -571,7 +594,7 @@ function modeName(r) {
     if (r.type === 'weighted') return '模擬考（書籍題庫）';
     return '綜合模擬考';
   }
-  return { marks: '收藏題練習', wrong: '錯題重練', chapter: '分章練習', map: '學習地圖練習' }[r.type] || '練習';
+  return { marks: '收藏題練習', wrong: '錯題重練', chapter: '分章練習', map: '學習地圖練習', unseen: '未寫過題目' }[r.type] || '練習';
 }
 
 /* ================= 綜合模擬考說明 ================= */
@@ -615,6 +638,9 @@ function vCustom(id) {
     + '<button data-act="setN" data-n="0">全部範圍</button></div>'
     + '<div class="flabel">題目順序</div><div class="seg" id="segO"><button class="on" data-act="setOrd" data-o="0">隨機打散</button><button data-act="setOrd" data-o="1">照原本順序（含選項）</button></div>'
     + '<div class="flabel">練習範圍（不選＝全部主題）</div>';
+  var un = unseenPool(id).length;
+  h += '<div class="unseen-row"><button class="btn btn-pri unseen-btn" data-act="startUnseen" data-id="' + id + '"' + (un ? '' : ' disabled') + '>✨ 未寫過題目（' + un + '）</button>'
+    + '<span class="mkhint">' + (un ? '直接練習所有還沒寫過的題目（隨機順序）' : '所有題目都寫過了，太厲害了！') + '</span></div>';
   subs.forEach(function (s) {
     if (s) h += '<div class="subhead">' + esc(s) + '</div>';
     h += '<div class="tchips">' + bySub[s].map(function (t) { var sh = tShort(t); return '<button data-act="tgTopic" data-t="' + esc(t) + '">' + (sh.no ? '<i>' + sh.no + '</i>' : '') + esc(sh.name) + '（' + cnt[t] + '）</button>'; }).join('') + '</div>';
@@ -690,7 +716,7 @@ function sessionMode() {
     if (S.type === 'weighted') return '模擬考 ─ ' + ((examById(S.examId) || {}).bookName || '書籍題庫');
     return S.src && S.src !== 'all' ? '模擬考 ─ ' + srcName(S.src) : '綜合模擬考';
   }
-  return { marks: '收藏題練習', wrong: '錯題重練', chapter: '分章練習', map: '學習地圖' }[S.type] || '練習模式';
+  return { marks: '收藏題練習', wrong: '錯題重練', chapter: '分章練習', map: '學習地圖', unseen: '未寫過題目' }[S.type] || '練習模式';
 }
 function vExam() {
   var e = examById(S.examId), q = S.qs[S.idx], mock = S.mode === 'mock';
@@ -701,9 +727,10 @@ function vExam() {
     + '<span class="prog num">已答 <b>' + answered() + '</b>／' + S.total + '</span>'
     + '<button class="btn btn-ghost btn-sm sheet-toggle" data-act="sheet">答題卡</button>'
     + '<button class="btn ' + (mock ? 'btn-danger' : 'btn-pri') + ' btn-sm" data-act="submitAsk">' + (mock ? '交卷' : '結束練習') + '</button></span></div>';
+  var ps = pastSrc(q);
   h += '<div class="exam-wrap"><div><div class="qcard"><div class="qhead"><span class="qno num">第 ' + (S.idx + 1) + ' 題</span>' + tags(q)
-    + '<span class="qbtns"><button class="qflag' + (S.flags[S.idx] ? ' on' : '') + '" data-act="flag" title="標記待檢查：交卷前可逐題複查（鍵盤 F）">' + (S.flags[S.idx] ? '🚩 已標記' : '🚩 標記') + '</button>'
-    + markBtn(q.id, 'markCur') + '</span></div><p class="qtext">' + esc(q.q) + '</p><div class="opts">';
+    + '<div class="qsub">' + (ps ? '<span class="qsrc">📄 ' + esc(ps) + '</span>' : '') + '<span class="qbtns"><button class="qflag' + (S.flags[S.idx] ? ' on' : '') + '" data-act="flag" title="標記待檢查：交卷前可逐題複查（鍵盤 F）">' + (S.flags[S.idx] ? '🚩 已標記' : '🚩 標記') + '</button>'
+    + markBtn(q.id, 'markCur') + '</span></div></div><p class="qtext">' + esc(q.q) + '</p><div class="opts">';
   for (var i = 0; i < 4; i++) {
     var cls = 'opt';
     if (revealed) { if (i === q.ans) cls += ' is-ans'; else if (S.picked[S.idx] === i) cls += ' is-wrong'; }
@@ -714,8 +741,8 @@ function vExam() {
   if (revealed) {
     var hit = S.picked[S.idx] === q.ans;
     h += '<div class="fb">' + verdictHtml(hit, q.ans)
-      + '<div class="fbnav"><button class="btn btn-ghost btn-sm" data-act="retryQ">🔁 當題重新作答</button><span class="sp"></span>'
-      + (S.idx === S.total - 1 ? '<button class="btn btn-pri btn-sm" data-act="submitAsk">結束並看結果 →</button>' : '<button class="btn btn-pri btn-sm" data-act="next">下一題 →</button>') + '</div>';
+      + '<div class="fbnav"><button class="btn btn-ghost" data-act="retryQ">🔁 當題重新作答</button>'
+      + (S.idx === S.total - 1 ? '<button class="btn btn-pri qnext" data-act="submitAsk">結束並看結果 →</button>' : '<button class="btn btn-pri qnext" data-act="next">下一題 →</button>') + '</div>';
     if (hasOptExp(q)) {
       h += '<ul>' + q.exps.map(function (x, j) { return '<li class="' + (j === q.ans ? 'hit' : '') + '"><b>' + L(j) + (j === q.ans ? ' ✓' : ' ✗') + '</b><span>' + fmtTxt(x || '') + '</span></li>'; }).join('') + '</ul>';
       if (q.note) h += '<div class="offexp"><b>解析</b>　' + fmtTxt(q.note) + '</div>';
@@ -723,8 +750,8 @@ function vExam() {
     } else h += offNote(q);
     h += '</div>';
   }
-  h += '<div class="qnav"><button class="btn btn-ghost" data-act="prev"' + (S.idx === 0 ? ' disabled' : '') + '>← 上一題</button><span class="sp"></span>'
-    + (revealed ? '' : '<button class="btn btn-ghost" data-act="next"' + (S.idx === S.total - 1 ? ' disabled' : '') + '>下一題 →</button>') + '</div></div></div>';
+  h += '<div class="qnav"><button class="btn btn-ghost" data-act="prev"' + (S.idx === 0 ? ' disabled' : '') + '>← 上一題</button>'
+    + (revealed ? '' : (S.idx === S.total - 1 ? '<button class="btn btn-pri qnext" data-act="submitAsk">' + (mock ? '完成，準備交卷' : '結束並看結果') + ' →</button>' : '<button class="btn btn-pri qnext" data-act="next">下一題 →</button>')) + '</div></div></div>';
   h += '<aside class="sheet' + (sheetOpen ? ' open' : '') + '"><h4>答題卡</h4><div class="legend"><span class="l-done"><i></i>已作答</span><span><i></i>未作答</span><span class="l-flag"><i></i>標記</span></div><div class="gq-grid">';
   for (var k = 0; k < S.total; k++) {
     var c = 'gq num' + (S.picked[k] != null ? ' done' : '') + (S.flags[k] ? ' flag' : '') + (k === S.idx ? ' cur' : '');
@@ -1279,6 +1306,10 @@ var ACT = {
     if (!n) return;
     makeSession(custom.id, 'practice', drawQuestions(e, n, { topics: custom.topics.length ? custom.topics.slice() : null, ordered: custom.ordered }), {});
   },
+  startUnseen: function (d) {
+    var list = unseenPool(d.id); if (!list.length) return;
+    makeSession(d.id, 'practice', shuffle(list).map(function (q) { return toItem(q); }), { type: 'unseen' });
+  },
   startPaper: function (d) {
     var p = paperById(d.paper); if (!p) return;
     var qs = paperQs(p).map(function (q) { return toItem(q, true); });
@@ -1360,6 +1391,7 @@ var ACT = {
     if (S.type === 'wrong') return ACT.wrongStart({ id: S.examId, s: S.wrongScope || 'all' });
     if (S.type === 'chapter') { var q0 = S.qs[0]; return ACT.bookChap({ id: S.examId, t: q0.topic, sub: q0.subject }); }
     if (S.type === 'map') return ACT.mapGo({ id: S.examId, t: S.mapTopic });
+    if (S.type === 'unseen') return unseenPool(S.examId).length ? ACT.startUnseen({ id: S.examId }) : vCustom(S.examId);
     if (S.mode === 'mock') return ACT.startMock({ id: S.examId });
     var pool = dedup(bankOf(S.examId));
     makeSession(S.examId, 'practice', drawQuestions(e, Math.min(S.total, pool.length), {}), {});
