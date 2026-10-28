@@ -761,3 +761,8 @@ details.more .rules{margin-top:8px}
 .unseen-row{display:flex;flex-wrap:wrap;align-items:center;gap:8px 12px;margin:4px 0 12px}
 .unseen-row .mkhint{margin:0}
 .unseen-btn:disabled{background:var(--line2);color:var(--muted);box-shadow:none;opacity:1}
+.unseen-box{border:1.5px dashed var(--line2);border-radius:14px;padding:10px 14px 14px;margin:-4px 0 16px;background:var(--card)}
+.unseen-box .flabel{margin-top:2px}
+.unseen-act{display:flex;margin-top:6px}
+.unseen-act .btn{flex:1;min-height:44px}
+.unseen-btn.on{box-shadow:0 2px 0 var(--hl)}

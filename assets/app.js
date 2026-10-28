@@ -328,8 +328,11 @@ function toggleMark(item) {
 function markRaw(m) { return rawById(m.id) || { id: m.id, exam: m.exam, subject: m.subject, topic: m.topic, kind: m.kind, q: m.q, options: m.opts, answer: m.ans, explain: m.exps, src: m.src, note: m.note }; }
 
 function getWrong() { return store.get(KEY.wrong, []); }
+/* 錯題只收「有作答且答錯」的題目：以作答足跡確認曾經選錯過（排除未作答的舊紀錄） */
+function wrongOk(x, seen) { var s = seen[x.id]; return !!(s && s[0] > s[1]) && (!x.r || x.w > x.r) && !!rawById(x.id); }
 function wrongActive(examId) {
-  return getWrong().filter(function (x) { return x.exam === examId && (!x.r || x.w > x.r) && rawById(x.id); });
+  var seen = getSeen();
+  return getWrong().filter(function (x) { return x.exam === examId && wrongOk(x, seen); });
 }
 function wrongFromHistory(examId, n) {
   var recs = store.get(KEY.his, []).filter(function (r) { return r.examId === examId && r.detail && r.detail.length; }).slice(0, n);
@@ -338,7 +341,7 @@ function wrongFromHistory(examId, n) {
     r.detail.forEach(function (d) {
       var raw = rawById(d.id); if (!raw || seen[d.id]) return;
       var p = (d.p && d.p.length === 4) ? d.p : [0, 1, 2, 3];
-      if (d.k !== p.indexOf(raw.answer)) { seen[d.id] = 1; out.push(raw); }
+      if (d.k != null && d.k !== p.indexOf(raw.answer)) { seen[d.id] = 1; out.push(raw); }
     });
   });
   return out;
@@ -387,11 +390,12 @@ function submit(auto) {
   his = his.slice(0, HIS_MAX);
   his.forEach(function (r, i) { if (i >= HIS_DETAIL) delete r.detail; });
   store.set(KEY.his, his);
-  // 錯題本：答錯／未答記入；答對標記為已解決
+  // 錯題本：只記入有作答且答錯的題目（未作答不算）；答對標記為已解決
   var wr = getWrong(), wm = {};
   wr.forEach(function (x) { wm[x.id] = x; });
   S.qs.forEach(function (q, i) {
     var f = wm[q.id];
+    if (S.picked[i] == null) return;
     if (S.picked[i] !== q.ans) { if (f) f.w = Date.now(); else { f = { id: q.id, exam: q.exam || S.examId, w: Date.now() }; wr.push(f); wm[q.id] = f; } }
     else if (f) f.r = Date.now();
   });
@@ -630,7 +634,7 @@ function vCustom(id) {
     if (!(s in bySub)) { bySub[s] = []; subs.push(s); }
     if (!seen[key]) { seen[key] = 1; bySub[s].push(q.topic); }
   });
-  custom = { id: id, n: 20, topics: [], ordered: false };
+  custom = { id: id, n: 20, topics: [], ordered: false, utopics: [] };
   var h = '<div class="panel ' + hueCls(e) + '"><span class="ebadge">' + esc(e.badge) + '</span>' + pacoSay('happy', '自由選擇想練習的題數和分類！範圍也可多選唷！', 'panel-paco') + '<h2>自訂練習｜' + esc(e.short) + '</h2>'
     + '<p class="admin">不計時 ─ 每題作答後立即顯示解析，適合分主題複習（題庫共 ' + pool.length + ' 題）</p>'
     + '<div class="flabel">練習題數</div><div class="seg" id="segN">'
@@ -638,9 +642,24 @@ function vCustom(id) {
     + '<button data-act="setN" data-n="0">全部範圍</button></div>'
     + '<div class="flabel">題目順序</div><div class="seg" id="segO"><button class="on" data-act="setOrd" data-o="0">隨機打散</button><button data-act="setOrd" data-o="1">照原本順序（含選項）</button></div>'
     + '<div class="flabel">練習範圍（不選＝全部主題）</div>';
-  var un = unseenPool(id).length;
-  h += '<div class="unseen-row"><button class="btn btn-pri unseen-btn" data-act="startUnseen" data-id="' + id + '"' + (un ? '' : ' disabled') + '>✨ 未寫過題目（' + un + '）</button>'
-    + '<span class="mkhint">' + (un ? '直接練習所有還沒寫過的題目（隨機順序）' : '所有題目都寫過了，太厲害了！') + '</span></div>';
+  var upool = unseenPool(id), un = upool.length;
+  h += '<div class="unseen-row"><button class="btn btn-pri unseen-btn" id="unseenBtn" data-act="unseenOpen"' + (un ? '' : ' disabled') + '>✨ 未寫過題目（' + un + '）</button>'
+    + '<span class="mkhint">' + (un ? '點選後可再挑分類，練習還沒寫過的題目' : '所有題目都寫過了，太厲害了！') + '</span></div>';
+  if (un) {
+    var ubySub = {}, usubs = [], ucnt = {};
+    upool.forEach(function (q) {
+      var s = q.subject || '';
+      if (!(s in ubySub)) { ubySub[s] = []; usubs.push(s); }
+      if (!ucnt[q.topic]) { ucnt[q.topic] = 0; ubySub[s].push(q.topic); }
+      ucnt[q.topic]++;
+    });
+    h += '<div class="unseen-box" id="unseenBox" hidden><div class="flabel">未寫過題目的分類（不選＝全部）</div>';
+    usubs.forEach(function (s) {
+      if (s) h += '<div class="subhead">' + esc(s) + '</div>';
+      h += '<div class="tchips">' + ubySub[s].sort(function (a, b) { return bySub[s].indexOf(a) - bySub[s].indexOf(b); }).map(function (t) { var sh = tShort(t); return '<button data-act="tgUTopic" data-t="' + esc(t) + '" data-n="' + ucnt[t] + '">' + (sh.no ? '<i>' + sh.no + '</i>' : '') + esc(sh.name) + '（' + ucnt[t] + '）</button>'; }).join('') + '</div>';
+    });
+    h += '<div class="unseen-act"><button class="btn btn-pri" id="unseenGo" data-act="startUnseen" data-id="' + id + '">開始練習未寫過題目（' + un + ' 題）</button></div></div>';
+  }
   subs.forEach(function (s) {
     if (s) h += '<div class="subhead">' + esc(s) + '</div>';
     h += '<div class="tchips">' + bySub[s].map(function (t) { var sh = tShort(t); return '<button data-act="tgTopic" data-t="' + esc(t) + '">' + (sh.no ? '<i>' + sh.no + '</i>' : '') + esc(sh.name) + '（' + cnt[t] + '）</button>'; }).join('') + '</div>';
@@ -1161,7 +1180,7 @@ function buildChrome() {
   ov.innerHTML = '<div class="movl-box"><div class="movl-head"><b id="movlTitle"></b><span class="sp"></span><button class="btn btn-ghost btn-sm" data-act="closeFlags">關閉 ✕</button></div><div id="movlBody"></div></div>';
   document.body.appendChild(ov);
 }
-function activeWrongAll() { return getWrong().filter(function (x) { return (!x.r || x.w > x.r) && rawById(x.id); }); }
+function activeWrongAll() { var seen = getSeen(); return getWrong().filter(function (x) { return wrongOk(x, seen); }); }
 function curFlags(src) { src = src || S; var a = []; if (src && src.qs) src.qs.forEach(function (q, i) { if (src.flags[i]) a.push(i); }); return a; }
 /* 標記的來源：目前（含已交卷、尚未回首頁）的測驗，否則為暫存中未完成的測驗；回到首頁後已完成測驗的標記即清除 */
 function flagSrc() { return (S && S.qs) ? S : store.get(KEY.ses, null); }
@@ -1306,9 +1325,23 @@ var ACT = {
     if (!n) return;
     makeSession(custom.id, 'practice', drawQuestions(e, n, { topics: custom.topics.length ? custom.topics.slice() : null, ordered: custom.ordered }), {});
   },
+  unseenOpen: function (d, t) {
+    var box = document.getElementById('unseenBox'); if (!box) return;
+    box.hidden = !box.hidden; t.classList.toggle('on', !box.hidden);
+  },
+  tgUTopic: function (d, t) {
+    t.classList.toggle('on');
+    var i = custom.utopics.indexOf(d.t);
+    if (i >= 0) custom.utopics.splice(i, 1); else custom.utopics.push(d.t);
+    var n = 0;
+    document.querySelectorAll('#unseenBox .tchips button').forEach(function (b) { if (!custom.utopics.length || b.classList.contains('on')) n += +b.getAttribute('data-n'); });
+    document.getElementById('unseenGo').textContent = '開始練習未寫過題目（' + n + ' 題）';
+  },
   startUnseen: function (d) {
-    var list = unseenPool(d.id); if (!list.length) return;
-    makeSession(d.id, 'practice', shuffle(list).map(function (q) { return toItem(q); }), { type: 'unseen' });
+    var tp = d.topics || (custom && custom.id === d.id ? custom.utopics.slice() : []);
+    var list = unseenPool(d.id).filter(function (q) { return !tp.length || tp.indexOf(q.topic) >= 0; });
+    if (!list.length) return vCustom(d.id);
+    makeSession(d.id, 'practice', shuffle(list).map(function (q) { return toItem(q); }), { type: 'unseen', utopics: tp });
   },
   startPaper: function (d) {
     var p = paperById(d.paper); if (!p) return;
@@ -1391,7 +1424,7 @@ var ACT = {
     if (S.type === 'wrong') return ACT.wrongStart({ id: S.examId, s: S.wrongScope || 'all' });
     if (S.type === 'chapter') { var q0 = S.qs[0]; return ACT.bookChap({ id: S.examId, t: q0.topic, sub: q0.subject }); }
     if (S.type === 'map') return ACT.mapGo({ id: S.examId, t: S.mapTopic });
-    if (S.type === 'unseen') return unseenPool(S.examId).length ? ACT.startUnseen({ id: S.examId }) : vCustom(S.examId);
+    if (S.type === 'unseen') return ACT.startUnseen({ id: S.examId, topics: S.utopics || [] });
     if (S.mode === 'mock') return ACT.startMock({ id: S.examId });
     var pool = dedup(bankOf(S.examId));
     makeSession(S.examId, 'practice', drawQuestions(e, Math.min(S.total, pool.length), {}), {});
