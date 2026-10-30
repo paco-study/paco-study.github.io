@@ -133,6 +133,9 @@ function mergePapers(c) {
 
 /* ================= 題庫存取 ================= */
 function bankOf(id) { return BANK[id] || []; }
+/* 分類鍵：來源（歷屆考古題／題庫）＋主題，同名主題在不同來源分開計算；只給主題名稱時兩種來源都算 */
+function tKey(q) { return (q.subject || '') + '||' + q.topic; }
+function tHit(list, q) { return list.indexOf(tKey(q)) >= 0 || list.indexOf(q.topic) >= 0; }
 /* 題目來源：book＝書籍題庫（依章節）／off＝官方歷屆試題／self＝自編詳解題 */
 function kindOf(q) {
   if (q.kind) return q.kind;
@@ -212,8 +215,8 @@ function pastSrc(q) {
   }
   var raw = rawById(q.id), list = raw ? (_SRCMAP[normKey(raw)] || []) : [], seenP = {};
   list = list.filter(function (p) { if (seenP[p.id]) return false; seenP[p.id] = 1; return true; })
-    .sort(function (a, b) { return (b.sess || 0) - (a.sess || 0); });
-  return list.map(function (p) { return (p.yROC ? p.yROC + '年 ' : '') + '第' + p.sess + '期'; }).join('、');
+    .sort(function (a, b) { return (b.yROC || 0) - (a.yROC || 0) || (b.sess || 0) - (a.sess || 0); });
+  return list.map(function (p) { return (p.yROC ? p.yROC + '年 ' : '') + '第' + p.sess + (p.sessUnit || '期'); }).join('、');
 }
 /* 未寫過題目：以題目內容判斷（同一題在不同期出現只要寫過一次就算寫過） */
 function unseenPool(id) {
@@ -243,7 +246,7 @@ function stratified(pool, n) {
 function drawQuestions(exam, n, opt) {
   opt = opt || {};
   var pool = poolOf(exam.id, opt.src || 'all');
-  if (opt.topics && opt.topics.length) pool = pool.filter(function (q) { return opt.topics.indexOf(q.topic) >= 0; });
+  if (opt.topics && opt.topics.length) pool = pool.filter(function (q) { return tHit(opt.topics, q); });
   pool = dedup(pool);
   var qs;
   if (opt.ordered) qs = pool.slice(0, n);
@@ -584,7 +587,7 @@ function vHome() {
   h += '</div>';
   h += '<footer class="foot"><div class="disc"><b>資料來源與聲明：</b>'
     + '<div>信託業務專業測驗：題目全部為金研院公布之官方歷屆試題（附官方正確答案），官方送分、一題多解或已刪除之題目不納入。</div>'
-    + '<div>期貨商業務員：題庫建置中（目前為示範題）。</div>'
+    + '<div>期貨商業務員資格測驗：歷屆考古題為證基會公布之 110～115 年試題（附官方答案）；題庫陸續建置中。</div>'
     + '<div class="i">考試制度依主辦單位最新電腦應試簡章設定（資料更新：' + esc(META.updated) + '）。</div>'
     + '<div class="i">官方歷屆試題之答案依主辦單位公布之正確答案；解析與主題分類為本站依測驗範圍整理，僅供學習參考。</div>'
     + '<div class="i">早期試題若涉及已修正法規，請以最新法規為準；實際規定以主辦單位公告為準。</div></div>';
@@ -629,8 +632,8 @@ var custom = null;
 function vCustom(id) {
   var e = examById(id), pool = bankOf(id), bySub = {}, subs = [], seen = {}, cnt = {};
   pool.forEach(function (q) {
-    var s = q.subject || '', key = s + '|' + q.topic;
-    cnt[q.topic] = (cnt[q.topic] || 0) + 1;
+    var s = q.subject || '', key = tKey(q);
+    cnt[key] = (cnt[key] || 0) + 1;
     if (!(s in bySub)) { bySub[s] = []; subs.push(s); }
     if (!seen[key]) { seen[key] = 1; bySub[s].push(q.topic); }
   });
@@ -648,21 +651,21 @@ function vCustom(id) {
   if (un) {
     var ubySub = {}, usubs = [], ucnt = {};
     upool.forEach(function (q) {
-      var s = q.subject || '';
+      var s = q.subject || '', key = tKey(q);
       if (!(s in ubySub)) { ubySub[s] = []; usubs.push(s); }
-      if (!ucnt[q.topic]) { ucnt[q.topic] = 0; ubySub[s].push(q.topic); }
-      ucnt[q.topic]++;
+      if (!ucnt[key]) { ucnt[key] = 0; ubySub[s].push(q.topic); }
+      ucnt[key]++;
     });
     h += '<div class="unseen-box" id="unseenBox" hidden><div class="flabel">未寫過題目的分類（不選＝全部）</div>';
     usubs.forEach(function (s) {
       if (s) h += '<div class="subhead">' + esc(s) + '</div>';
-      h += '<div class="tchips">' + ubySub[s].sort(function (a, b) { return bySub[s].indexOf(a) - bySub[s].indexOf(b); }).map(function (t) { var sh = tShort(t); return '<button data-act="tgUTopic" data-t="' + esc(t) + '" data-n="' + ucnt[t] + '">' + (sh.no ? '<i>' + sh.no + '</i>' : '') + esc(sh.name) + '（' + ucnt[t] + '）</button>'; }).join('') + '</div>';
+      h += '<div class="tchips">' + ubySub[s].sort(function (a, b) { return bySub[s].indexOf(a) - bySub[s].indexOf(b); }).map(function (t) { var sh = tShort(t), k = s + '||' + t; return '<button data-act="tgUTopic" data-t="' + esc(k) + '" data-n="' + ucnt[k] + '">' + (sh.no ? '<i>' + sh.no + '</i>' : '') + esc(sh.name) + '（' + ucnt[k] + '）</button>'; }).join('') + '</div>';
     });
     h += '<div class="unseen-act"><button class="btn btn-pri" id="unseenGo" data-act="startUnseen" data-id="' + id + '">開始練習未寫過題目（' + un + ' 題）</button></div></div>';
   }
   subs.forEach(function (s) {
     if (s) h += '<div class="subhead">' + esc(s) + '</div>';
-    h += '<div class="tchips">' + bySub[s].map(function (t) { var sh = tShort(t); return '<button data-act="tgTopic" data-t="' + esc(t) + '">' + (sh.no ? '<i>' + sh.no + '</i>' : '') + esc(sh.name) + '（' + cnt[t] + '）</button>'; }).join('') + '</div>';
+    h += '<div class="tchips">' + bySub[s].map(function (t) { var sh = tShort(t), k = s + '||' + t; return '<button data-act="tgTopic" data-t="' + esc(k) + '">' + (sh.no ? '<i>' + sh.no + '</i>' : '') + esc(sh.name) + '（' + cnt[k] + '）</button>'; }).join('') + '</div>';
   });
   h += '<div class="pactions"><button class="btn btn-pri btn-lg" data-act="startCustom">開始練習</button><button class="btn btn-ghost btn-lg" data-act="home">返回</button></div></div>';
   setHTML(h); setView('custom', { id: id });
@@ -879,18 +882,19 @@ function vHisDetail(i, f) {
 function vBank(id, topic, page) {
   var e = examById(id), all = bankOf(id), cnt = {}, groups = {}, gOrder = [];
   all.forEach(function (q) {
-    cnt[q.topic] = (cnt[q.topic] || 0) + 1;
+    var k = tKey(q);
+    cnt[k] = (cnt[k] || 0) + 1;
     var s = q.subject || '';
     if (!(s in groups)) { groups[s] = []; gOrder.push(s); }
     if (groups[s].indexOf(q.topic) < 0) groups[s].push(q.topic);
   });
-  var pool = topic ? all.filter(function (q) { return q.topic === topic; }) : all;
+  var pool = topic ? all.filter(function (q) { return tHit([topic], q); }) : all;
   var pages = Math.max(1, Math.ceil(pool.length / BANK_PG));
   page = Math.min(Math.max(0, page || 0), pages - 1);
   var h = '<div class="' + hueCls(e) + '">' + backBar(esc(e.short) + ' ─ 題庫瀏覽（' + pool.length + ' 題）');
   h += '<div class="bankf"><label class="bfl" for="bankSel">主題篩選</label><select id="bankSel" class="bsel"><option value="">全部主題（' + all.length + ' 題）</option>';
   gOrder.forEach(function (s) {
-    var o = groups[s].map(function (t) { return '<option value="' + esc(t) + '"' + (topic === t ? ' selected' : '') + '>' + esc(t) + '（' + cnt[t] + ' 題）</option>'; }).join('');
+    var o = groups[s].map(function (t) { var k = s + '||' + t; return '<option value="' + esc(k) + '"' + (topic === k || topic === t ? ' selected' : '') + '>' + esc(t) + '（' + cnt[k] + ' 題）</option>'; }).join('');
     h += s ? '<optgroup label="' + esc(s) + '">' + o + '</optgroup>' : o;
   });
   h += '</select></div>';
@@ -1319,7 +1323,7 @@ var ACT = {
   },
   startCustom: function () {
     var e = examById(custom.id), pool = bankOf(custom.id);
-    if (custom.topics.length) pool = pool.filter(function (q) { return custom.topics.indexOf(q.topic) >= 0; });
+    if (custom.topics.length) pool = pool.filter(function (q) { return tHit(custom.topics, q); });
     pool = dedup(pool);
     var n = custom.n === 0 ? pool.length : Math.min(custom.n, pool.length);
     if (!n) return;
@@ -1339,7 +1343,7 @@ var ACT = {
   },
   startUnseen: function (d) {
     var tp = d.topics || (custom && custom.id === d.id ? custom.utopics.slice() : []);
-    var list = unseenPool(d.id).filter(function (q) { return !tp.length || tp.indexOf(q.topic) >= 0; });
+    var list = unseenPool(d.id).filter(function (q) { return !tp.length || tHit(tp, q); });
     if (!list.length) return vCustom(d.id);
     makeSession(d.id, 'practice', shuffle(list).map(function (q) { return toItem(q); }), { type: 'unseen', utopics: tp });
   },

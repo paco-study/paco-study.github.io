@@ -21,9 +21,10 @@ index.html            頁面殼
 assets/style.css      樣式（藍色系）
 assets/app.js         主程式
 data/meta.js          考試規則設定（題數、時間、及格標準）
-data/bank.js          期貨題庫（目前為示範題）
+data/bank.js          自編／書籍題庫（目前無資料）
 data/bank-trust.js    信託題庫（第 41～48 期官方歷屆試題）
-data/papers.js        歷屆整份試卷（目前為示範卷）
+data/bank-futures.js  期貨題庫（110～115 年官方歷屆考古題，由 tools/parse_futures_md.py 產生）
+data/papers.js        其他歷屆整份試卷（目前無資料）
 firebase-config.js    Firebase 設定（留空＝不啟用登入）
 firestore.rules       Firestore 安全規則
 tools/convert_bank.py 題庫轉檔工具（Excel／CSV → data/*.js）
