@@ -766,3 +766,7 @@ details.more .rules{margin-top:8px}
 .unseen-act{display:flex;margin-top:6px}
 .unseen-act .btn{flex:1;min-height:44px}
 .unseen-btn.on{box-shadow:0 2px 0 var(--hl)}
+.qimg{margin:10px 0 2px;text-align:center}
+.qimg img{max-width:100%;height:auto;border:1px solid var(--line,#e2e6ee);border-radius:8px;background:#fff}
+.qimg{margin:10px 0 2px;text-align:center}
+.qimg img{max-width:100%;height:auto;border:1px solid var(--line,#e2e6ee);border-radius:8px;background:#fff}

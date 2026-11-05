@@ -24,7 +24,7 @@ function esc(s) {
     return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
   });
 }
-function fmtTxt(s) { return esc(s).replace(/；(?!\s*$)/g, '；<br>'); }
+function fmtTxt(s) { return esc(s).replace(/\n/g, '<br>').replace(/；(?!\s*$)/g, '；<br>'); }
 function fmtClock(sec) {
   sec = Math.max(0, Math.round(sec));
   var m = Math.floor(sec / 60), s = sec % 60;
@@ -183,13 +183,21 @@ function paperRange(id) {
 function paperGroup(p) { return p.era || ('民國 ' + p.yROC + ' 年（西元 ' + p.yCE + '）'); }
 
 /* 原始題目 → 作答用題目（可打散選項；perm[i] = 第 i 個顯示選項對應的原始索引） */
-function toItem(raw, keepOrder) {
-  var perm = keepOrder ? [0, 1, 2, 3] : shuffle([0, 1, 2, 3]);
+/* 選項互相引用（如「選項(A)(B)皆是」「以上皆非」）時不打散，避免順序錯亂 */
+function fixedOrder(raw) { return (raw.options || []).some(function (o) { return /選項|以上|上述|[皆均都](?:是|非|可|對|錯|正確|不正確|不可|有可能|可能|須考量)/.test(o); }); }
+/* 打散選項後，把解析與選項中的 (A)～(D) 代號換成畫面上的新代號 */
+function remapLetters(s, perm) {
+  if (!s || perm.join('') === '0123') return s || '';
+  return String(s).replace(/([\(（])([A-D])(?=[\)）]|[錯對正誤])/g, function (m, b, c) { return b + L(perm.indexOf('ABCD'.indexOf(c))); });
+}
+function toItem(raw, keepOrder, permIn) {
+  var perm = permIn || (keepOrder || fixedOrder(raw) ? [0, 1, 2, 3] : shuffle([0, 1, 2, 3]));
   return {
     id: raw.id, exam: raw.exam || '', subject: raw.subject || '', topic: raw.topic || '綜合', kind: kindOf(raw),
-    q: raw.q, opts: perm.map(function (i) { return raw.options[i]; }),
+    q: raw.q, opts: perm.map(function (i) { return remapLetters(raw.options[i], perm); }),
     exps: perm.map(function (i) { return (raw.explain && raw.explain[i]) || ''; }),
-    ans: perm.indexOf(raw.answer), src: raw.src || '', note: raw.note || '', nv: raw.nv ? 1 : 0, perm: perm
+    ans: perm.indexOf(raw.answer), src: raw.src || '', note: remapLetters(raw.note, perm), nv: raw.nv ? 1 : 0, perm: perm,
+    img: raw.img || null
   };
 }
 /* 顯示用（原始順序，不打散） */
@@ -490,8 +498,11 @@ function offNote(item) {
   return (item.note ? noteHtml(item) : '') + '<div class="qmeta">備註：' + meta + (item.src ? '<br>依據：' + fmtTxt(item.src) : '') + '</div>';
 }
 /* 官方題目之解析為本站整理；nv＝涉及條號、金額、比例等細節，提醒對照最新法規 */
+function imgHtml(item) {
+  return (item.img || []).map(function (u) { return '<div class="qimg"><img src="' + esc(u) + '" alt="解析附圖" loading="lazy"></div>'; }).join('');
+}
 function noteHtml(item) {
-  return '<div class="offexp"><b>解析</b><span class="nsrc">本站整理</span>　' + fmtTxt(item.note) + '</div>'
+  return '<div class="offexp"><b>解析</b><span class="nsrc">本站整理</span>　' + fmtTxt(item.note) + imgHtml(item) + '</div>'
     + (item.nv ? '<div class="nvnote">⚠️ 本解析涉及之條號、金額或比例係依當期法規整理，建議對照最新規定。</div>' : '');
 }
 function hasOptExp(item) { return item.exps && item.exps.some(function (x) { return x; }); }
@@ -509,7 +520,7 @@ function optionRows(item, picked, showAns) {
       + '</div></div>';
   }
   if (showAns && !hasOptExp(item)) h += offNote(item);
-  else if (showAns) h += (item.note ? '<div class="offexp"><b>解析</b>　' + fmtTxt(item.note) + '</div>' : '') + (item.src ? '<div class="qmeta">依據：' + fmtTxt(item.src) + '</div>' : '');
+  else if (showAns) h += (item.note ? '<div class="offexp"><b>解析</b>　' + fmtTxt(item.note) + imgHtml(item) + '</div>' : '') + (item.src ? '<div class="qmeta">依據：' + fmtTxt(item.src) + '</div>' : '');
   return h;
 }
 function markBtn(id, act, extra) {
@@ -767,7 +778,7 @@ function vExam() {
       + (S.idx === S.total - 1 ? '<button class="btn btn-pri qnext" data-act="submitAsk">結束並看結果 →</button>' : '<button class="btn btn-pri qnext" data-act="next">下一題 →</button>') + '</div>';
     if (hasOptExp(q)) {
       h += '<ul>' + q.exps.map(function (x, j) { return '<li class="' + (j === q.ans ? 'hit' : '') + '"><b>' + L(j) + (j === q.ans ? ' ✓' : ' ✗') + '</b><span>' + fmtTxt(x || '') + '</span></li>'; }).join('') + '</ul>';
-      if (q.note) h += '<div class="offexp"><b>解析</b>　' + fmtTxt(q.note) + '</div>';
+      if (q.note) h += '<div class="offexp"><b>解析</b>　' + fmtTxt(q.note) + imgHtml(q) + '</div>';
       if (q.src) h += '<div class="qmeta">依據：' + fmtTxt(q.src) + '</div>';
     } else h += offNote(q);
     h += '</div>';
@@ -862,10 +873,7 @@ function vHisDetail(i, f) {
   r.detail.forEach(function (d, di) {
     var raw = rawById(d.id);
     if (!raw) { missing++; return; }
-    var p = (d.p && d.p.length === 4) ? d.p : [0, 1, 2, 3], it = toItem(raw, true);
-    it.opts = p.map(function (x) { return raw.options[x]; });
-    it.exps = p.map(function (x) { return (raw.explain && raw.explain[x]) || ''; });
-    it.ans = p.indexOf(raw.answer);
+    var p = (d.p && d.p.length === 4) ? d.p : [0, 1, 2, 3], it = toItem(raw, true, p);
     list.push({ no: di + 1, item: it, picked: d.k == null ? null : d.k });
   });
   var wrongN = list.filter(function (x) { return x.picked !== x.item.ans; }).length;
