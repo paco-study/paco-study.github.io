@@ -83,7 +83,7 @@ def load_fixes():
         for line in open(path, encoding='utf-8'):
             p = line.rstrip('\n').split('\t')
             if len(p) == 3:
-                fx.setdefault(p[0], {})[p[1]] = p[2]
+                fx.setdefault(p[0], {})[p[1]] = p[2].replace('\\n', '\n')
     return fx
 
 

@@ -641,9 +641,11 @@ function vIntro(id) {
 /* ================= 自訂練習 ================= */
 var custom = null;
 function vCustom(id) {
-  var e = examById(id), pool = bankOf(id), bySub = {}, subs = [], seen = {}, cnt = {};
-  pool.forEach(function (q) {
-    var s = q.subject || '', key = tKey(q);
+  /* 題數與實際出題一致：同一主題內內容相同的重複題（歷屆常重複出現）只算一次 */
+  var e = examById(id), pool = dedup(bankOf(id)), bySub = {}, subs = [], seen = {}, cnt = {}, dup = {};
+  bankOf(id).forEach(function (q) {
+    var s = q.subject || '', key = tKey(q), dk = key + '\u0001' + normKey(q);
+    if (dup[dk]) return; dup[dk] = 1;
     cnt[key] = (cnt[key] || 0) + 1;
     if (!(s in bySub)) { bySub[s] = []; subs.push(s); }
     if (!seen[key]) { seen[key] = 1; bySub[s].push(q.topic); }
